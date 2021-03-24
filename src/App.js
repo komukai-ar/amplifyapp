@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
-import { API } from 'aws-amplify';
+import { API, Storage } from 'aws-amplify';
 import { withAuthenticator, AmplifySignOut } from '@aws-amplify/ui-react';
 import { listNotes } from './graphql/queries';
 import { createNote as createNoteMutation, deleteNote as deleteNoteMutation } from './graphql/mutations';
@@ -21,6 +21,15 @@ const App = () => {
      */
     const fetchNotes = async() => {
         const apiData = await API.graphql({ query: listNotes });
+        const notesFromAPI = apiData.data.listNotes.items;
+        await Promise.all(notesFromAPI.map(async note => {
+            // 画像が設定されている場合
+            if (note.image) {
+                const image = await Storage.get(note.image);
+                note.image = image;
+            }
+            return note;
+        }))
         setNotes(apiData.data.listNotes.items);
     }
 
@@ -31,6 +40,11 @@ const App = () => {
     const createNote = async() => {
         if (!formData.name || !formData.description) return;
         await API.graphql({ query: createNoteMutation, variables: { input: formData } });
+        // 画像が設定されている場合
+        if (formData.image) {
+            const image = await Storage.get(formData.image);
+            formData.image = image;
+        }
         setNotes([ ...notes, formData ]);
         setFormData(initialFormState);
     }
@@ -46,6 +60,19 @@ const App = () => {
         await API.graphql({ query: deleteNoteMutation, variables: { input: { id } }});
     }
 
+    /**
+     * 画像のアップロード
+     * @param e
+     * @return {Promise<void>}
+     */
+    const uploadImage = async(e) => {
+        if (!e.target.files[0]) return
+        const file = e.target.files[0];
+        setFormData({ ...formData, image: file.name });
+        await Storage.put(file.name, file);
+        fetchNotes();
+    }
+
     return (
         <div className="App">
             <h1>My Notes App</h1>
@@ -59,6 +86,10 @@ const App = () => {
                 placeholder="内容"
                 value={formData.description}
             />
+            <input
+                type="file"
+                onChange={uploadImage}
+            />
             <button onClick={createNote}>Create Note</button>
             <div style={{marginBottom: 30}}>
                 {
@@ -67,6 +98,9 @@ const App = () => {
                             <h2>{note.name}</h2>
                             <p>{note.description}</p>
                             <button onClick={() => deleteNote(note)}>Delete note</button>
+                            {
+                                note.image && <img src={note.image} style={{width: 400}} />
+                            }
                         </div>
                     ))
                 }
